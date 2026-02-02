@@ -17,14 +17,16 @@ def load_db():
         return {"users": {}}
 
 def save_db(db):
-    with open(DB_FILE, "w", encoding="utf-8") as f:
-        json.dump(db, f, ensure_ascii=False, indent=2)
+    try:
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(db, f, ensure_ascii=False, indent=2)
+    except:
+        pass
 
 @app.route("/")
 def home():
-    return "✅ Server is working!"
+    return jsonify({"status": "ok"})
 
-# ================= REGISTER =================
 @app.route("/register", methods=["POST"])
 def register():
     data = request.json or {}
@@ -40,17 +42,11 @@ def register():
         return jsonify({"success": False, "message": "Ник уже существует"})
 
     token = str(uuid.uuid4())
-    db["users"][login] = {
-        "password": password,
-        "clicks": 0,
-        "banned": False,
-        "token": token
-    }
+    db["users"][login] = {"password": password, "clicks": 0, "token": token}
     save_db(db)
 
-    return jsonify({"success": True, "message": "Регистрация успешна", "token": token})
+    return jsonify({"success": True, "token": token})
 
-# ================= LOGIN =================
 @app.route("/login", methods=["POST"])
 def login():
     data = request.json or {}
@@ -67,7 +63,6 @@ def login():
 
     return jsonify({"success": True, "token": db["users"][login]["token"]})
 
-# ================= STATUS =================
 @app.route("/status")
 def status():
     user = request.args.get("user")
@@ -76,19 +71,15 @@ def status():
     db = load_db()
 
     if user not in db["users"]:
-        return jsonify({"clicks": 0, "banned": False})
+        return jsonify({"clicks": 0})
 
     u = db["users"][user]
 
-    if u.get("token") != token:
-        return jsonify({"clicks": 0, "banned": False})
+    if u["token"] != token:
+        return jsonify({"clicks": 0})
 
-    return jsonify({
-        "clicks": int(u.get("clicks", 0)),
-        "banned": bool(u.get("banned", False))
-    })
+    return jsonify({"clicks": int(u.get("clicks", 0))})
 
-# ================= CLICK =================
 @app.route("/click", methods=["POST"])
 def click():
     data = request.json or {}
@@ -109,53 +100,21 @@ def click():
 
     return jsonify({"success": True})
 
-# ================= TOP =================
 @app.route("/top")
 def top():
     db = load_db()
-
     users = db.get("users", {})
 
     players = []
-    for name, data in users.items():
-        clicks = int(data.get("clicks", 0))
-        players.append({"name": name, "clicks": clicks})
+    for name, u in users.items():
+        players.append({
+            "name": name,
+            "clicks": int(u.get("clicks", 0))
+        })
 
     players.sort(key=lambda x: x["clicks"], reverse=True)
 
     return jsonify({"top": players})
 
-# ================= BAN =================
-@app.route("/ban", methods=["POST"])
-def ban():
-    data = request.json or {}
-    user = data.get("user")
-
-    db = load_db()
-    if user in db["users"]:
-        db["users"][user]["banned"] = True
-        save_db(db)
-
-    return jsonify({"success": True})
-
-# ================= UNBAN =================
-DEV_CODE = "93+₽; ₽shhs29"
-
-@app.route("/unban", methods=["POST"])
-def unban():
-    data = request.json or {}
-    user = data.get("user")
-    code = data.get("code")
-
-    if code != DEV_CODE:
-        return jsonify({"success": False})
-
-    db = load_db()
-    if user in db["users"]:
-        db["users"][user]["banned"] = False
-        save_db(db)
-
-    return jsonify({"success": True})
-
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
