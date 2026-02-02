@@ -2,7 +2,7 @@ import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import os
 
-DATA_FILE = "players.json"
+DATA_FILE = "users.json"
 
 def load_data():
     try:
@@ -29,38 +29,67 @@ class Handler(BaseHTTPRequestHandler):
         self._set_headers()
 
     def do_POST(self):
-        if self.path == "/update":
-            length = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(length).decode("utf-8")
-            data = json.loads(body)
+        length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(length).decode("utf-8")
+        data = json.loads(body)
 
-            username = data.get("username", "Player")
-            score = int(data.get("score", 0))
+        users = load_data()
 
-            players = load_data()
+        # 🧩 регистрация
+        if self.path == "/register":
+            username = data.get("username")
+            password = data.get("password")
 
-            if username in players:
-                if score > players[username]:
-                    players[username] = score
-            else:
-                players[username] = score
+            if username in users:
+                self._set_headers()
+                self.wfile.write(json.dumps({"status": "error", "msg": "User exists"}).encode())
+                return
 
-            save_data(players)
+            users[username] = {"password": password, "score": 0}
+            save_data(users)
 
             self._set_headers()
-            self.wfile.write(json.dumps({"status": "ok"}).encode("utf-8"))
+            self.wfile.write(json.dumps({"status": "ok"}).encode())
+            return
+
+        # 🔐 вход
+        if self.path == "/login":
+            username = data.get("username")
+            password = data.get("password")
+
+            if username in users and users[username]["password"] == password:
+                self._set_headers()
+                self.wfile.write(json.dumps({"status": "ok", "score": users[username]["score"]}).encode())
+            else:
+                self._set_headers()
+                self.wfile.write(json.dumps({"status": "error"}).encode())
+            return
+
+        # 📤 обновление очков
+        if self.path == "/update":
+            username = data.get("username")
+            score = int(data.get("score", 0))
+
+            if username in users:
+                if score > users[username]["score"]:
+                    users[username]["score"] = score
+                    save_data(users)
+
+            self._set_headers()
+            self.wfile.write(json.dumps({"status": "ok"}).encode())
+            return
 
     def do_GET(self):
         if self.path == "/top":
-            players = load_data()
-            sorted_players = sorted(players.items(), key=lambda x: x[1], reverse=True)
-            top10 = [{"username": u, "score": s} for u, s in sorted_players[:10]]
+            users = load_data()
+            sorted_users = sorted(users.items(), key=lambda x: x[1]["score"], reverse=True)
+            top = [{"username": u, "score": s["score"]} for u, s in sorted_users[:10]]
 
             self._set_headers()
-            self.wfile.write(json.dumps(top10).encode("utf-8"))
+            self.wfile.write(json.dumps(top).encode())
 
 def run():
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(("0.0.0.0", port), Handler)
     print("🔥 Server started on port", port)
     server.serve_forever()
