@@ -1,181 +1,140 @@
-import json
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import os
-import time
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import json, os, uuid
 
-DATA_FILE = "users.json"
-UNBAN_CODE = "93+₽; ₽shhs29"
+app = Flask(__name__)
+CORS(app)
 
-def load_data():
-    try:
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return {}
+DB_FILE = "db.json"
 
-def save_data(data):
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False)
+def load_db():
+    if not os.path.exists(DB_FILE):
+        return {"users": {}}
+    with open(DB_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
 
-class Handler(BaseHTTPRequestHandler):
+def save_db(db):
+    with open(DB_FILE, "w", encoding="utf-8") as f:
+        json.dump(db, f, ensure_ascii=False, indent=2)
 
-    def _set_headers(self):
-        self.send_response(200)
-        self.send_header("Content-type", "application/json")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.end_headers()
+@app.route("/")
+def home():
+    return "Server OK"
 
-    def do_OPTIONS(self):
-        self._set_headers()
+@app.route("/register", methods=["POST"])
+def register():
+    data = request.json
+    login = data.get("login")
+    password = data.get("pass")
 
-    def do_POST(self):
-        length = int(self.headers.get('Content-Length', 0))
-        body = self.rfile.read(length).decode("utf-8")
-        data = json.loads(body)
+    if not login or not password:
+        return jsonify({"success": False, "message": "Введите логин и пароль"})
 
-        users = load_data()
+    db = load_db()
 
-        # 🧩 регистрация
-        if self.path == "/register":
-            username = data.get("username")
-            password = data.get("password")
+    if login in db["users"]:
+        return jsonify({"success": False, "message": "Ник уже существует"})
 
-            if username in users:
-                self._set_headers()
-                self.wfile.write(json.dumps({"status":"error","msg":"exists"}).encode())
-                return
+    token = str(uuid.uuid4())
+    db["users"][login] = {
+        "password": password,
+        "clicks": 0,
+        "banned": False,
+        "token": token
+    }
+    save_db(db)
 
-            users[username] = {
-                "password": password,
-                "score": 0,
-                "warn": 0,
-                "ban": False,
-                "last_time": 0,
-                "last_score": 0
-            }
+    return jsonify({"success": True, "message": "Регистрация успешна", "token": token})
 
-            save_data(users)
-            self._set_headers()
-            self.wfile.write(json.dumps({"status":"ok"}).encode())
-            return
+@app.route("/login", methods=["POST"])
+def login():
+    data = request.json
+    login = data.get("login")
+    password = data.get("pass")
 
-        # 🔐 вход
-        if self.path == "/login":
-            username = data.get("username")
-            password = data.get("password")
+    db = load_db()
 
-            if username not in users:
-                self._set_headers()
-                self.wfile.write(json.dumps({"status":"error","msg":"no_user"}).encode())
-                return
+    if login not in db["users"]:
+        return jsonify({"success": False, "message": "Аккаунт не найден"})
 
-            if users[username]["ban"]:
-                self._set_headers()
-                self.wfile.write(json.dumps({"status":"ban"}).encode())
-                return
+    if db["users"][login]["password"] != password:
+        return jsonify({"success": False, "message": "Неверный пароль"})
 
-            if users[username]["password"] == password:
-                self._set_headers()
-                self.wfile.write(json.dumps({
-                    "status":"ok",
-                    "score": users[username]["score"],
-                    "warn": users[username]["warn"]
-                }).encode())
-            else:
-                self._set_headers()
-                self.wfile.write(json.dumps({"status":"error","msg":"wrong_pass"}).encode())
-            return
+    token = db["users"][login]["token"]
 
-        # 🔓 разбан
-        if self.path == "/unban":
-            username = data.get("username")
-            code = data.get("code")
+    return jsonify({"success": True, "message": "Вход выполнен", "token": token})
 
-            if username in users and code == UNBAN_CODE:
-                users[username]["ban"] = False
-                users[username]["warn"] = 0
-                save_data(users)
+@app.route("/status")
+def status():
+    login = request.args.get("user")
+    token = request.args.get("token")
 
-                self._set_headers()
-                self.wfile.write(json.dumps({"status":"ok"}).encode())
-            else:
-                self._set_headers()
-                self.wfile.write(json.dumps({"status":"error"}).encode())
-            return
+    db = load_db()
 
-        # 📤 обновление очков + античит
-        if self.path == "/update":
-            username = data.get("username")
-            score = int(data.get("score", 0))
+    if login not in db["users"]:
+        return jsonify({"success": False})
 
-            if username not in users:
-                self._set_headers()
-                self.wfile.write(json.dumps({"status":"error"}).encode())
-                return
+    user = db["users"][login]
 
-            user = users[username]
+    if user["token"] != token:
+        return jsonify({"success": False})
 
-            if user["ban"]:
-                self._set_headers()
-                self.wfile.write(json.dumps({"status":"ban"}).encode())
-                return
+    return jsonify({
+        "success": True,
+        "clicks": user["clicks"],
+        "banned": user["banned"]
+    })
 
-            now = time.time()
-            dt = now - user["last_time"]
-            diff = score - user["last_score"]
+@app.route("/click", methods=["POST"])
+def click():
+    data = request.json
+    login = data.get("user")
+    token = data.get("token")
+    clicks = data.get("clicks")
 
-            cheat = False
+    db = load_db()
 
-            # ⚡ слишком быстро кликает
-            if dt < 0.05 and diff > 3:
-                cheat = True
+    if login not in db["users"]:
+        return jsonify({"success": False})
 
-            # 💥 слишком большой скачок очков
-            if diff > 100:
-                cheat = True
+    user = db["users"][login]
 
-            if cheat:
-                user["warn"] += 1
+    if user["token"] != token:
+        return jsonify({"success": False})
 
-                if user["warn"] >= 3:
-                    user["ban"] = True
+    user["clicks"] = clicks
+    save_db(db)
 
-                save_data(users)
-                self._set_headers()
-                self.wfile.write(json.dumps({
-                    "status":"warn",
-                    "warn": user["warn"],
-                    "ban": user["ban"]
-                }).encode())
-                return
+    return jsonify({"success": True})
 
-            if score > user["score"]:
-                user["score"] = score
+@app.route("/ban", methods=["POST"])
+def ban():
+    data = request.json
+    login = data.get("user")
 
-            user["last_time"] = now
-            user["last_score"] = score
+    db = load_db()
+    if login in db["users"]:
+        db["users"][login]["banned"] = True
+        save_db(db)
 
-            save_data(users)
-            self._set_headers()
-            self.wfile.write(json.dumps({"status":"ok"}).encode())
-            return
+    return jsonify({"success": True})
 
-    def do_GET(self):
-        if self.path == "/top":
-            users = load_data()
-            sorted_users = sorted(users.items(), key=lambda x: x[1]["score"], reverse=True)
-            top = [{"username": u, "score": s["score"]} for u, s in sorted_users[:10]]
+DEV_CODE = "93+₽; ₽shhs29"
 
-            self._set_headers()
-            self.wfile.write(json.dumps(top).encode())
+@app.route("/unban", methods=["POST"])
+def unban():
+    data = request.json
+    login = data.get("user")
+    code = data.get("code")
 
-def run():
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), Handler)
-    print("🔥 Server started on port", port)
-    server.serve_forever()
+    if code != DEV_CODE:
+        return jsonify({"success": False, "message": "Неверный код"})
 
-if __name__ == "__main__":
-    run()
+    db = load_db()
+    if login in db["users"]:
+        db["users"][login]["banned"] = False
+        save_db(db)
+
+    return jsonify({"success": True, "message": "Разбан выполнен"})
+    
+app.run(host="0.0.0.0", port=5000)
