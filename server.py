@@ -6,7 +6,9 @@ app = Flask(__name__)
 CORS(app)
 
 DB_FILE = "db.json"
+DEV_CODE = "93+₽; ₽shhs29"  # код для разбана
 
+# ---------- БАЗА ----------
 def load_db():
     if not os.path.exists(DB_FILE):
         return {"users": {}}
@@ -17,34 +19,27 @@ def save_db(db):
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(db, f, ensure_ascii=False, indent=2)
 
-# ---------- ROUTES ----------
-
+# ---------- HOME ----------
 @app.route("/")
 def home():
     return "✅ Clicker server is running!"
 
+# ---------- AUTH ----------
 @app.route("/register", methods=["POST"])
 def register():
     data = request.json or {}
     login = data.get("login")
     password = data.get("pass")
-
     if not login or not password:
-        return jsonify({"success": False, "message": "Введите логин и пароль"})
+        return jsonify({"success": False, "message": "Введите ник и пароль"})
 
     db = load_db()
     if login in db["users"]:
         return jsonify({"success": False, "message": "Ник уже существует"})
 
     token = str(uuid.uuid4())
-    db["users"][login] = {
-        "password": password,
-        "clicks": 0,
-        "banned": False,
-        "token": token
-    }
+    db["users"][login] = {"password": password, "clicks": 0, "banned": False, "token": token}
     save_db(db)
-
     return jsonify({"success": True, "message": "Регистрация успешна", "token": token})
 
 @app.route("/login", methods=["POST"])
@@ -56,85 +51,75 @@ def login():
     db = load_db()
     if login not in db["users"]:
         return jsonify({"success": False, "message": "Аккаунт не найден"})
-
     if db["users"][login]["password"] != password:
         return jsonify({"success": False, "message": "Неверный пароль"})
 
     token = db["users"][login]["token"]
     return jsonify({"success": True, "message": "Вход выполнен", "token": token})
 
+# ---------- STATUS ----------
 @app.route("/status")
 def status():
     login = request.args.get("user")
     token = request.args.get("token")
-
     db = load_db()
     if not login or login not in db["users"]:
         return jsonify({"success": False})
-
     user = db["users"][login]
     if user["token"] != token:
         return jsonify({"success": False})
+    return jsonify({"success": True, "clicks": user["clicks"], "banned": user["banned"]})
 
-    return jsonify({
-        "success": True,
-        "clicks": user["clicks"],
-        "banned": user["banned"]
-    })
-
+# ---------- CLICK ----------
 @app.route("/click", methods=["POST"])
 def click():
     data = request.json or {}
     login = data.get("user")
     token = data.get("token")
     clicks = data.get("clicks")
-
     db = load_db()
     if not login or login not in db["users"]:
         return jsonify({"success": False})
-
     user = db["users"][login]
     if user["token"] != token:
         return jsonify({"success": False})
-
     try:
         clicks = int(clicks)
     except:
         return jsonify({"success": False})
-
     user["clicks"] = clicks
     save_db(db)
     return jsonify({"success": True})
 
+# ---------- BAN ----------
 @app.route("/ban", methods=["POST"])
 def ban():
     data = request.json or {}
     login = data.get("user")
-
     db = load_db()
     if login in db["users"]:
         db["users"][login]["banned"] = True
         save_db(db)
-
     return jsonify({"success": True})
-
-DEV_CODE = "93+₽; ₽shhs29"
 
 @app.route("/unban", methods=["POST"])
 def unban():
     data = request.json or {}
     login = data.get("user")
     code = data.get("code")
-
     if code != DEV_CODE:
         return jsonify({"success": False, "message": "Неверный код"})
-
     db = load_db()
     if login in db["users"]:
         db["users"][login]["banned"] = False
         save_db(db)
-
     return jsonify({"success": True, "message": "Аккаунт разбанен"})
+
+# ---------- ТОП ВСЕХ ПОЛЬЗОВАТЕЛЕЙ ----------
+@app.route("/allusers")
+def all_users():
+    db = load_db()
+    return jsonify({"users": db["users"]})
 
 # ---------- PORT BINDING ДЛЯ RENDER ----------
 if __name__ == "__main__":
