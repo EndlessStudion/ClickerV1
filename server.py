@@ -1,8 +1,10 @@
 import json
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import os
+import time
 
 DATA_FILE = "users.json"
+UNBAN_CODE = "93+₽; ₽shhs29"
 
 def load_data():
     try:
@@ -42,14 +44,21 @@ class Handler(BaseHTTPRequestHandler):
 
             if username in users:
                 self._set_headers()
-                self.wfile.write(json.dumps({"status": "error", "msg": "User exists"}).encode())
+                self.wfile.write(json.dumps({"status":"error","msg":"exists"}).encode())
                 return
 
-            users[username] = {"password": password, "score": 0}
-            save_data(users)
+            users[username] = {
+                "password": password,
+                "score": 0,
+                "warn": 0,
+                "ban": False,
+                "last_time": 0,
+                "last_score": 0
+            }
 
+            save_data(users)
             self._set_headers()
-            self.wfile.write(json.dumps({"status": "ok"}).encode())
+            self.wfile.write(json.dumps({"status":"ok"}).encode())
             return
 
         # 🔐 вход
@@ -57,26 +66,100 @@ class Handler(BaseHTTPRequestHandler):
             username = data.get("username")
             password = data.get("password")
 
-            if username in users and users[username]["password"] == password:
+            if username not in users:
                 self._set_headers()
-                self.wfile.write(json.dumps({"status": "ok", "score": users[username]["score"]}).encode())
+                self.wfile.write(json.dumps({"status":"error","msg":"no_user"}).encode())
+                return
+
+            if users[username]["ban"]:
+                self._set_headers()
+                self.wfile.write(json.dumps({"status":"ban"}).encode())
+                return
+
+            if users[username]["password"] == password:
+                self._set_headers()
+                self.wfile.write(json.dumps({
+                    "status":"ok",
+                    "score": users[username]["score"],
+                    "warn": users[username]["warn"]
+                }).encode())
             else:
                 self._set_headers()
-                self.wfile.write(json.dumps({"status": "error"}).encode())
+                self.wfile.write(json.dumps({"status":"error","msg":"wrong_pass"}).encode())
             return
 
-        # 📤 обновление очков
+        # 🔓 разбан
+        if self.path == "/unban":
+            username = data.get("username")
+            code = data.get("code")
+
+            if username in users and code == UNBAN_CODE:
+                users[username]["ban"] = False
+                users[username]["warn"] = 0
+                save_data(users)
+
+                self._set_headers()
+                self.wfile.write(json.dumps({"status":"ok"}).encode())
+            else:
+                self._set_headers()
+                self.wfile.write(json.dumps({"status":"error"}).encode())
+            return
+
+        # 📤 обновление очков + античит
         if self.path == "/update":
             username = data.get("username")
             score = int(data.get("score", 0))
 
-            if username in users:
-                if score > users[username]["score"]:
-                    users[username]["score"] = score
-                    save_data(users)
+            if username not in users:
+                self._set_headers()
+                self.wfile.write(json.dumps({"status":"error"}).encode())
+                return
 
+            user = users[username]
+
+            if user["ban"]:
+                self._set_headers()
+                self.wfile.write(json.dumps({"status":"ban"}).encode())
+                return
+
+            now = time.time()
+            dt = now - user["last_time"]
+            diff = score - user["last_score"]
+
+            cheat = False
+
+            # ⚡ слишком быстро кликает
+            if dt < 0.05 and diff > 3:
+                cheat = True
+
+            # 💥 слишком большой скачок очков
+            if diff > 100:
+                cheat = True
+
+            if cheat:
+                user["warn"] += 1
+
+                if user["warn"] >= 3:
+                    user["ban"] = True
+
+                save_data(users)
+                self._set_headers()
+                self.wfile.write(json.dumps({
+                    "status":"warn",
+                    "warn": user["warn"],
+                    "ban": user["ban"]
+                }).encode())
+                return
+
+            if score > user["score"]:
+                user["score"] = score
+
+            user["last_time"] = now
+            user["last_score"] = score
+
+            save_data(users)
             self._set_headers()
-            self.wfile.write(json.dumps({"status": "ok"}).encode())
+            self.wfile.write(json.dumps({"status":"ok"}).encode())
             return
 
     def do_GET(self):
