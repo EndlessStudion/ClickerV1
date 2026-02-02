@@ -136,5 +136,3 @@ def unban():
         save_db(db)
 
     return jsonify({"success": True, "message": "Разбан выполнен"})
-    
-app.run(host="0.0.0.0", port=5000)
