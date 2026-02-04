@@ -10,7 +10,7 @@ DB_FILE = "users.json"
 
 # Почта для отправки (отправитель)
 EMAIL_FROM = "Endlessstudion@gmail.com"  # твоя почта
-EMAIL_PASSWORD = "Ekke82OoP!"           # пароль приложения Gmail
+EMAIL_PASSWORD = "qpjs lsjh ciil vhyz"    # вставь сюда App Password
 
 def load_users():
     if not os.path.exists(DB_FILE):
@@ -22,31 +22,31 @@ def save_users(data):
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# функция отправки кода
 def send_code(email_to, code):
-    text = f"ClickerV1\n\nВаш код подтверждения: {code}"
-    msg = MIMEText(text)
-    msg["Subject"] = "ClickerV1 - подтверждение аккаунта"
-    msg["From"] = EMAIL_FROM
-    msg["To"] = email_to
-
+    # TEMP для теста: выводим код в консоль, чтобы проверить
+    print(f"DEBUG: Код для {email_to}: {code}")
     try:
+        # Раскомментировать, когда будет App Password и 2FA включены
+        """
+        text = f"ClickerV1\n\nВаш код подтверждения: {code}"
+        msg = MIMEText(text)
+        msg["Subject"] = "ClickerV1 - подтверждение аккаунта"
+        msg["From"] = EMAIL_FROM
+        msg["To"] = email_to
         server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
         server.login(EMAIL_FROM, EMAIL_PASSWORD)
         server.send_message(msg)
         server.quit()
-        print(f"Код {code} отправлен на {email_to}")
+        """
         return True
     except Exception as e:
         print("MAIL ERROR:", e)
-        print(f"DEBUG: Код для {email_to}: {code}")  # выводим код в консоль для теста
         return False
 
 @app.route("/")
 def home():
     return "ClickerV1 server online"
 
-# регистрация
 @app.route("/register", methods=["POST"])
 def register():
     data = request.json
@@ -71,11 +71,11 @@ def register():
     }
     save_users(users)
 
-    send_code(email, code)  # отправка кода
+    send_code(email, code)
 
-    return jsonify({"ok": True, "msg": "Код отправлен на почту (или в консоль для теста)"})
+    # Всегда возвращаем ok: true, чтобы окно ввода кода появлялось
+    return jsonify({"ok": True, "msg": "Код отправлен (или смотри консоль для теста)"})
 
-# подтверждение кода
 @app.route("/verify", methods=["POST"])
 def verify():
     data = request.json
@@ -93,7 +93,6 @@ def verify():
     save_users(users)
     return jsonify({"ok": True})
 
-# вход
 @app.route("/login", methods=["POST"])
 def login():
     data = request.json
@@ -108,7 +107,6 @@ def login():
 
     return jsonify({"ok": True, "clicks": users[login]["clicks"]})
 
-# клик
 @app.route("/click", methods=["POST"])
 def click():
     data = request.json
@@ -120,12 +118,11 @@ def click():
     save_users(users)
     return jsonify({"ok": True, "clicks": users[login]["clicks"]})
 
-# топ
 @app.route("/top")
 def top():
     users = load_users()
     top_list = sorted(
-        [{"login": k, "clicks": v["clicks"]} for k, v in users.items()],
+        [{"login": k, "clicks": v["clicks"]} for k,v in users.items()],
         key=lambda x: x["clicks"], reverse=True
     )[:10]
     return jsonify(top_list)
