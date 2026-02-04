@@ -24,11 +24,11 @@ def send_code(email, code):
         r = requests.post(
             "https://api.resend.com/emails",
             headers={
-                "Authorization": f"Bearer {RESEND_API_KEY}",
+                "Authorization": f"Bearer {re_iJLi634y_LSov9U9khENQfG82GP9KshXr}",
                 "Content-Type": "application/json"
             },
             json={
-                "from": "ClickerV1 <onboarding@resend.dev>",
+                "from": "ClickerV1 <Endlessstudion@gmail.com>",
                 "to": email,
                 "subject": "ClickerV1 — код подтверждения",
                 "html": f"<h1>Ваш код: {code}</h1>"
