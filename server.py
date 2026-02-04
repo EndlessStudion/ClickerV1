@@ -1,50 +1,108 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import json
-import os
+import json, os, random, smtplib
+from email.mime.text import MIMEText
 
 app = Flask(__name__)
 CORS(app)
 
 DB_FILE = "users.json"
 
-# Загрузка базы
+# 🔐 НАСТРОЙКА ПОЧТЫ (ОБЯЗАТЕЛЬНО ИЗМЕНИ)
+EMAIL_FROM = "YOUR_GMAIL@gmail.com"   # твоя почта
+EMAIL_PASSWORD = "YOUR_APP_PASSWORD"  # пароль приложения Gmail
+
+
 def load_users():
     if not os.path.exists(DB_FILE):
         return {}
     with open(DB_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
-# Сохранение базы
 def save_users(data):
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# Проверка сервера
+def send_code(email_to, code):
+    text = f"ClickerV1\n\nВаш код подтверждения: {code}"
+    msg = MIMEText(text)
+    msg["Subject"] = "ClickerV1 - подтверждение аккаунта"
+    msg["From"] = EMAIL_FROM
+    msg["To"] = email_to
+
+    try:
+        server = smtplib.SMTP_SSL("smtp.gmail.com", 465)
+        server.login(EMAIL_FROM, EMAIL_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        return True
+    except Exception as e:
+        print("MAIL ERROR:", e)
+        return False
+
+
 @app.route("/")
 def home():
     return "ClickerV1 server online"
 
-# Регистрация
+
+# ✅ регистрация
 @app.route("/register", methods=["POST"])
 def register():
     data = request.json
     login = data.get("login")
     password = data.get("password")
+    email = data.get("email")
 
-    if not login or not password:
-        return jsonify({"ok": False, "msg": "Введите логин и пароль"})
+    if not login or not password or not email:
+        return jsonify({"ok": False, "msg": "Заполните все поля"})
 
     users = load_users()
+
     if login in users:
         return jsonify({"ok": False, "msg": "Аккаунт уже существует"})
 
-    users[login] = {"password": password, "clicks": 0}
+    code = str(random.randint(100000, 999999))
+
+    users[login] = {
+        "password": password,
+        "clicks": 0,
+        "email": email,
+        "verified": False,
+        "code": code
+    }
+
+    save_users(users)
+
+    if not send_code(email, code):
+        return jsonify({"ok": False, "msg": "Ошибка отправки почты"})
+
+    return jsonify({"ok": True, "msg": "Код отправлен на почту"})
+
+
+# ✅ подтверждение кода
+@app.route("/verify", methods=["POST"])
+def verify():
+    data = request.json
+    login = data.get("login")
+    code = data.get("code")
+
+    users = load_users()
+
+    if login not in users:
+        return jsonify({"ok": False, "msg": "Аккаунт не найден"})
+
+    if users[login]["code"] != code:
+        return jsonify({"ok": False, "msg": "Неверный код"})
+
+    users[login]["verified"] = True
+    users[login]["code"] = ""
     save_users(users)
 
     return jsonify({"ok": True})
 
-# Вход
+
+# ✅ вход
 @app.route("/login", methods=["POST"])
 def login():
     data = request.json
@@ -52,12 +110,17 @@ def login():
     password = data.get("password")
 
     users = load_users()
+
     if login not in users or users[login]["password"] != password:
         return jsonify({"ok": False, "msg": "Неверный логин или пароль"})
 
+    if not users[login]["verified"]:
+        return jsonify({"ok": False, "msg": "Подтвердите почту"})
+
     return jsonify({"ok": True, "clicks": users[login]["clicks"]})
 
-# Клик
+
+# ✅ клик
 @app.route("/click", methods=["POST"])
 def click():
     data = request.json
@@ -72,7 +135,8 @@ def click():
 
     return jsonify({"ok": True, "clicks": users[login]["clicks"]})
 
-# Топ
+
+# ✅ топ
 @app.route("/top")
 def top():
     users = load_users()
@@ -83,6 +147,7 @@ def top():
     )[:10]
 
     return jsonify(top_list)
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
